@@ -2,13 +2,10 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use makepad_widgets::*;
-use makepad_shell_core::menu::{
-    CommandId, CommandItem, MenuAnchor, MenuBarModel, MenuItem, MenuItemRole, MenuModel,
-    MenuTrigger, Submenu, TopMenu, TopMenuRole,
+use makepad_shell::{
+    AppMenu, CommandId, CommandItem, ContextMenu, MenuAnchor, MenuBarModel, MenuItem,
+    MenuItemRole, MenuModel, MenuTrigger, Submenu, TopMenu, TopMenuRole,
 };
-
-#[cfg(target_os = "macos")]
-use makepad_shell_platforms::menu::macos::popup_context_menu_macos;
 
 const CMD_COPY: u64 = 1;
 const CMD_PASTE: u64 = 2;
@@ -66,8 +63,6 @@ pub struct App {
     show_grid: bool,
     #[rust]
     last_command: Option<CommandId>,
-    #[rust]
-    app_menu_installed: bool,
 }
 
 impl LiveRegister for App {
@@ -81,20 +76,16 @@ impl App {
         #[cfg(target_os = "macos")]
         {
             let menu_bar = build_menu_bar(self.show_grid);
-            let result = makepad_shell::set_app_menu(menu_bar, |cmd| {
+            let result = AppMenu::set(menu_bar, |cmd| {
+                log!("app menu invoked: {}", cmd.as_u64());
+                eprintln!("app menu invoked: {}", cmd.as_u64());
                 if let Ok(mut slot) = APP_MENU_COMMAND.lock() {
                     *slot = Some(cmd);
                 }
             });
-            match result {
-                Ok(()) => {
-                    self.app_menu_installed = true;
-                }
-                Err(err) => {
-                    self.app_menu_installed = false;
-                    log!("set_app_menu failed: {:?}", err);
-                    eprintln!("set_app_menu failed: {:?}", err);
-                }
+            if let Err(err) = result {
+                log!("set_app_menu failed: {:?}", err);
+                eprintln!("set_app_menu failed: {:?}", err);
             }
         }
     }
@@ -125,7 +116,7 @@ impl App {
         #[cfg(target_os = "macos")]
         {
             let (ns_view, ns_event) = macos_context();
-            let result = popup_context_menu_macos(
+            let result = ContextMenu::popup_macos(
                 menu,
                 MenuAnchor::Window {
                     x: e.abs.x as f32,
@@ -134,7 +125,9 @@ impl App {
                 MenuTrigger::MouseRight,
                 ns_view,
                 ns_event,
-                Box::new(move |cmd| {
+                Box::new(move |cmd: CommandId| {
+                    log!("context menu invoked: {}", cmd.as_u64());
+                    eprintln!("context menu invoked: {}", cmd.as_u64());
                     selected_cb.set(Some(cmd));
                 }),
             );
@@ -157,6 +150,7 @@ impl App {
 
     fn apply_command(&mut self, cx: &mut Cx, cmd: CommandId) {
         self.last_command = Some(cmd);
+        log!("menu command: {}", cmd.as_u64());
         match cmd.as_u64() {
             CMD_TOGGLE_GRID => {
                 self.show_grid = !self.show_grid;

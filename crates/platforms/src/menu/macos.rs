@@ -102,6 +102,32 @@ pub fn build_ns_menu_from_model(menu: &MenuModel) -> Result<*mut AnyObject, MacM
     build_ns_menu_items(&menu.items, &ctx)
 }
 
+pub(crate) fn build_ns_menu_with_target(
+    items: &[MenuItem],
+    target: *mut AnyObject,
+) -> Result<*mut AnyObject, MacMenuError> {
+    let ctx = BuildContext {
+        target: Some(target),
+    };
+    build_ns_menu_items(items, &ctx)
+}
+
+pub(crate) fn try_update_ns_menu(
+    menu: *mut AnyObject,
+    old: &MenuModel,
+    new: &MenuModel,
+    target: *mut AnyObject,
+) -> Result<bool, MacMenuError> {
+    let ctx = BuildContext {
+        target: Some(target),
+    };
+    if !menu_items_shape_eq(&old.items, &new.items) {
+        return Ok(false);
+    }
+    update_menu_items(menu, &old.items, &new.items, &ctx)?;
+    Ok(true)
+}
+
 // ------------------------------
 // Internal helpers
 // ------------------------------
@@ -203,15 +229,32 @@ fn build_ns_menu_item(
             MenuItem::Command(cmd) => {
                 // [[NSMenuItem alloc] initWithTitle:action:keyEquivalent:]
                 let title = nsstring(&cmd.label);
-                let (action, key_equiv) = if let Some(role) = cmd.role {
-                    (role_selector(role), nsstring(role_key_equivalent(role)))
+                let action = if let Some(role) = cmd.role {
+                    role_selector(role)
                 } else {
-                    (ctx.action(), nsstring(""))
+                    ctx.action()
                 };
+                let mut key_equiv = nsstring("");
+                let mut key_mods: Option<u64> = None;
+                if let Some(shortcut) = cmd.shortcut {
+                    if let Some((equiv, mods)) = shortcut_to_key_equivalent(shortcut) {
+                        key_equiv = nsstring(&equiv);
+                        key_mods = Some(mods);
+                    }
+                } else if let Some(role) = cmd.role {
+                    let (equiv, mods) = role_key_equivalent_with_mods(role);
+                    if !equiv.is_empty() {
+                        key_equiv = nsstring(equiv);
+                        key_mods = Some(mods);
+                    }
+                }
                 let mi = new_menu_item(title, action, key_equiv);
 
                 if let Some(target) = ctx.target {
                     let _: () = msg_send![mi, setTarget: target];
+                }
+                if let Some(mods) = key_mods {
+                    let _: () = msg_send![mi, setKeyEquivalentModifierMask: mods];
                 }
 
                 if cmd.role == Some(MenuItemRole::Services) {
@@ -255,7 +298,7 @@ fn command_id_to_tag(id: CommandId) -> Result<NSInteger, MacMenuError> {
     Ok(id_u64 as NSInteger)
 }
 
-fn tag_to_command_id(tag: NSInteger) -> Option<CommandId> {
+pub(crate) fn tag_to_command_id(tag: NSInteger) -> Option<CommandId> {
     if tag <= 0 {
         return None;
     }
@@ -575,19 +618,57 @@ fn role_selector(role: MenuItemRole) -> Option<Sel> {
     }
 }
 
-fn role_key_equivalent(role: MenuItemRole) -> &'static str {
+fn role_key_equivalent_with_mods(role: MenuItemRole) -> (&'static str, u64) {
     match role {
-        MenuItemRole::About => "",
-        MenuItemRole::Preferences => ",",
-        MenuItemRole::Services => "",
-        MenuItemRole::Hide => "h",
-        MenuItemRole::HideOthers => "",
-        MenuItemRole::ShowAll => "",
-        MenuItemRole::Quit => "q",
-        MenuItemRole::Minimize => "m",
-        MenuItemRole::Zoom => "",
-        MenuItemRole::BringAllToFront => "",
+        MenuItemRole::About => ("", 0),
+        MenuItemRole::Preferences => (",", MOD_COMMAND),
+        MenuItemRole::Services => ("", 0),
+        MenuItemRole::Hide => ("h", MOD_COMMAND),
+        MenuItemRole::HideOthers => ("h", MOD_COMMAND | MOD_OPTION),
+        MenuItemRole::ShowAll => ("", 0),
+        MenuItemRole::Quit => ("q", MOD_COMMAND),
+        MenuItemRole::Minimize => ("m", MOD_COMMAND),
+        MenuItemRole::Zoom => ("", 0),
+        MenuItemRole::BringAllToFront => ("", 0),
     }
+}
+
+fn shortcut_to_key_equivalent(shortcut: Shortcut) -> Option<(String, u64)> {
+    let key = match shortcut.key {
+        Key::Char(c) => {
+            let ch = if c.is_ascii() {
+                c.to_ascii_lowercase()
+            } else {
+                c
+            };
+            ch.to_string()
+        }
+        Key::Enter => "\r".to_string(),
+        Key::Escape => "\u{1b}".to_string(),
+        Key::F(n) => {
+            if (1..=12).contains(&n) {
+                let code = 0xF704u32 + (n as u32 - 1);
+                char::from_u32(code)?.to_string()
+            } else {
+                return None;
+            }
+        }
+    };
+
+    let mut mods = 0u64;
+    if shortcut.mods.shift {
+        mods |= MOD_SHIFT;
+    }
+    if shortcut.mods.ctrl {
+        mods |= MOD_CONTROL;
+    }
+    if shortcut.mods.alt {
+        mods |= MOD_OPTION;
+    }
+    if shortcut.mods.meta {
+        mods |= MOD_COMMAND;
+    }
+    Some((key, mods))
 }
 
 unsafe fn popup_menu(
@@ -809,3 +890,8 @@ type CGFloat = f64;
 
 #[cfg(not(target_pointer_width = "64"))]
 type CGFloat = f32;
+
+const MOD_SHIFT: u64 = 1 << 17;
+const MOD_CONTROL: u64 = 1 << 18;
+const MOD_OPTION: u64 = 1 << 19;
+const MOD_COMMAND: u64 = 1 << 20;

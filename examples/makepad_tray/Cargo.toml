@@ -1,9 +1,9 @@
 [package]
-name = "makepad-shell-context-menu"
+name = "makepad-shell-tray"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [dependencies]
 makepad-widgets = { git = "https://github.com/Project-Robius-China/makepad", branch = "makepad_component_used_makepad_version" }
-makepad-shell   = { path = "../../crates/shell" }
+makepad-shell = { path = "../../crates/shell" }

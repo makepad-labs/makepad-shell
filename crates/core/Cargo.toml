@@ -1,0 +1,13 @@
+[package]
+name        = "makepad-shell-core"
+version     = { workspace = true }
+description = "Core abstractions for Makepad system shell UI"
+edition     = { workspace = true }
+
+
+[features]
+default = []
+
+[dependencies]
+
+[dev-dependencies]

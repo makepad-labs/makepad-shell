@@ -1,0 +1,15 @@
+[package]
+name        = "makepad-shell"
+description = "Cross-platform system shell UI primitives for Makepad"
+version     = { workspace = true }
+edition     = { workspace = true }
+
+[features]
+default = ["platforms"]
+platforms = ["dep:makepad-shell-platforms"]
+
+[dependencies]
+makepad-shell-core      = { workspace = true }
+makepad-shell-platforms = { workspace = true, optional = true }
+
+[dev-dependencies]

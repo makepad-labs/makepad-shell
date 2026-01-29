@@ -1,0 +1,11 @@
+[package]
+name = "makepad-shell-context-menu"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+makepad-widgets = { path = "../../../makepad/widgets", version = "1.0.0" }
+makepad-shell = { path = "../../crates/shell" }
+makepad-shell-core = { path = "../../crates/core" }
+makepad-shell-platforms = { path = "../../crates/platforms" }

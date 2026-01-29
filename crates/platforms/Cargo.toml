@@ -1,0 +1,15 @@
+[package]
+name        = "makepad-shell-platforms"
+description = "Platform backends for makepad-shell"
+version     = { workspace = true }
+edition     = { workspace = true }
+
+[dependencies]
+makepad-shell-core = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2            = { workspace = true }
+objc2-foundation = { workspace = true }
+objc2-app-kit    = { workspace = true }
+
+[dev-dependencies]

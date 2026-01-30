@@ -1,0 +1,33 @@
+[package]
+name = "makepad-shell-notification"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+makepad-widgets = { git = "https://github.com/Project-Robius-China/makepad", branch = "makepad_component_used_makepad_version" }
+makepad-shell = { path = "../../crates/shell" }
+
+[package.metadata.packager]
+product_name = "Makepad Shell Notification"
+identifier = "org.makepad.makepad-shell-notification"
+out_dir = "./dist"
+
+before-each-package-command = """
+robius-packaging-commands before-each-package \
+    --binary-name makepad-shell-notification \
+    --path-to-binary ../../target/release/makepad-shell-notification
+"""
+
+resources = [
+    # Makepad resources
+    { src = "./dist/resources/makepad_widgets", target = "makepad_widgets" },
+    { src = "./dist/resources/makepad_fonts_chinese_bold", target = "makepad_fonts_chinese_bold" },
+    { src = "./dist/resources/makepad_fonts_chinese_bold_2", target = "makepad_fonts_chinese_bold_2" },
+    { src = "./dist/resources/makepad_fonts_chinese_regular", target = "makepad_fonts_chinese_regular" },
+    { src = "./dist/resources/makepad_fonts_chinese_regular_2", target = "makepad_fonts_chinese_regular_2" },
+    { src = "./dist/resources/makepad_fonts_emoji", target = "makepad_fonts_emoji" },
+]
+
+[package.metadata.packager.macos]
+signing_identity = "-"

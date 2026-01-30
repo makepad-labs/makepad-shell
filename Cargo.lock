@@ -543,6 +543,14 @@ name = "makepad-shell-core"
 version = "0.0.1"
 
 [[package]]
+name = "makepad-shell-notification"
+version = "0.1.0"
+dependencies = [
+ "makepad-shell",
+ "makepad-widgets",
+]
+
+[[package]]
 name = "makepad-shell-platforms"
 version = "0.0.1"
 dependencies = [

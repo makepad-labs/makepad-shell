@@ -508,9 +508,39 @@ fn update_command_item(
     item: *mut AnyObject,
     old_cmd: &CommandItem,
     new_cmd: &CommandItem,
-    _ctx: &BuildContext,
+    ctx: &BuildContext,
 ) -> Result<(), MacMenuError> {
     unsafe {
+        let action = if let Some(role) = new_cmd.role {
+            role_selector(role)
+        } else {
+            ctx.action()
+        };
+        let _: () = msg_send![item, setAction: action];
+        if let Some(target) = ctx.target {
+            let _: () = msg_send![item, setTarget: target];
+        }
+        else {
+            let _: () = msg_send![item, setTarget: std::ptr::null::<AnyObject>()];
+        }
+
+        let mut key_equiv = nsstring("");
+        let mut key_mods: Option<u64> = None;
+        if let Some(shortcut) = new_cmd.shortcut {
+            if let Some((equiv, mods)) = shortcut_to_key_equivalent(shortcut) {
+                key_equiv = nsstring(&equiv);
+                key_mods = Some(mods);
+            }
+        } else if let Some(role) = new_cmd.role {
+            let (equiv, mods) = role_key_equivalent_with_mods(role);
+            if !equiv.is_empty() {
+                key_equiv = nsstring(equiv);
+                key_mods = Some(mods);
+            }
+        }
+        let _: () = msg_send![item, setKeyEquivalent: key_equiv];
+        let _: () = msg_send![item, setKeyEquivalentModifierMask: key_mods.unwrap_or(0)];
+
         if old_cmd.label != new_cmd.label {
             let title = nsstring(&new_cmd.label);
             let _: () = msg_send![item, setTitle: title];

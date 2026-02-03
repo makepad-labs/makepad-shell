@@ -1,4 +1,4 @@
-use crate::menu::CommandId;
+use crate::command::CommandId;
 
 #[derive(Debug, Clone)]
 pub struct Notification {

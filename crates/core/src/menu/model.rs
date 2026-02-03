@@ -1,17 +1,5 @@
-use std::num::NonZeroU64;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct CommandId(NonZeroU64);
-
-impl CommandId {
-    pub fn new(id: u64) -> Option<Self> {
-        NonZeroU64::new(id).map(Self)
-    }
-    
-    pub fn as_u64(&self) -> u64 {
-        self.0.get()
-    }
-}
+use crate::command::CommandId;
+use crate::shortcut::Shortcut;
 
 #[derive(Debug, Clone)]
 pub struct MenuModel {
@@ -37,7 +25,7 @@ pub struct CommandItem {
     pub label: String,
     pub enabled: bool,
     pub checked: bool,
-    pub shortcut: Option<crate::menu::shortcut::Shortcut>,
+    pub shortcut: Option<Shortcut>,
     pub role: Option<MenuItemRole>,
 }
 

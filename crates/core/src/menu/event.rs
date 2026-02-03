@@ -1,4 +1,4 @@
-use super::model::CommandId;
+use crate::command::CommandId;
 
 #[derive(Debug, Clone)]
 pub enum MenuEvent {

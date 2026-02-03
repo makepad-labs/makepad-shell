@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use makepad_shell_core::menu::CommandId;
+use makepad_shell_core::command::CommandId;
 use makepad_shell_core::notification::{Notification, NotificationSound};
 use objc2::ffi::NSInteger;
 use objc2::rc::Retained;

@@ -1,6 +1,7 @@
 #![cfg(target_os = "windows")]
 
-use makepad_shell_core::menu::{CommandId, MenuBarModel};
+use makepad_shell_core::command::CommandId;
+use makepad_shell_core::menu::MenuBarModel;
 
 #[derive(Debug)]
 pub enum WinMenuError {

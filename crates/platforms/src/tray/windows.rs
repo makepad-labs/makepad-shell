@@ -1,4 +1,4 @@
-use makepad_shell_core::menu::CommandId;
+use makepad_shell_core::command::CommandId;
 use makepad_shell_core::tray::TrayModel;
 
 #[derive(Debug)]

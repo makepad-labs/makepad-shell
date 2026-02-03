@@ -1,8 +1,15 @@
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "context-menu", target_os = "macos"))]
 use core::ffi::c_void;
 
+#[cfg(feature = "command")]
+pub use makepad_shell_core::command::*;
+#[cfg(feature = "menu-model")]
 pub use makepad_shell_core::menu::*;
+#[cfg(feature = "notification")]
 pub use makepad_shell_core::notification::*;
+#[cfg(feature = "shortcut")]
+pub use makepad_shell_core::shortcut::*;
+#[cfg(feature = "tray")]
 pub use makepad_shell_core::tray::*;
 
 #[derive(Debug)]
@@ -10,8 +17,10 @@ pub enum ShellError {
     Unsupported,
 }
 
+#[cfg(feature = "context-menu")]
 pub struct ContextMenu;
 
+#[cfg(feature = "context-menu")]
 impl ContextMenu {
     pub fn popup(
         menu: MenuModel,
@@ -56,8 +65,10 @@ impl ContextMenu {
     }
 }
 
+#[cfg(feature = "app-menu")]
 pub struct AppMenu;
 
+#[cfg(feature = "app-menu")]
 impl AppMenu {
     pub fn set(menu: MenuBarModel, on_command: impl Fn(CommandId) + 'static) -> Result<(), ShellError> {
         set_app_menu(menu, on_command)
@@ -68,19 +79,26 @@ impl AppMenu {
     }
 }
 
+#[cfg(feature = "tray")]
 pub struct TrayHandle {
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "platforms"))]
     inner: makepad_shell_platforms::tray::macos::MacTrayHandle,
 }
 
+#[cfg(feature = "tray")]
 impl TrayHandle {
-    pub fn update_menu(&mut self, menu: MenuModel) -> Result<(), ShellError> {
-        #[cfg(target_os = "macos")]
+    pub fn update_menu(&mut self, menu: TrayMenuModel) -> Result<(), ShellError> {
+        #[cfg(all(target_os = "macos", feature = "platforms"))]
         {
             return self
                 .inner
                 .update_menu(&menu)
                 .map_err(|_| ShellError::Unsupported);
+        }
+        #[cfg(all(target_os = "macos", not(feature = "platforms")))]
+        {
+            let _ = menu;
+            Err(ShellError::Unsupported)
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -90,12 +108,17 @@ impl TrayHandle {
     }
 
     pub fn update_icon(&mut self, icon: TrayIcon) -> Result<(), ShellError> {
-        #[cfg(target_os = "macos")]
+        #[cfg(all(target_os = "macos", feature = "platforms"))]
         {
             return self
                 .inner
                 .update_icon(&icon)
                 .map_err(|_| ShellError::Unsupported);
+        }
+        #[cfg(all(target_os = "macos", not(feature = "platforms")))]
+        {
+            let _ = icon;
+            Err(ShellError::Unsupported)
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -105,12 +128,17 @@ impl TrayHandle {
     }
 
     pub fn update_tooltip(&mut self, tooltip: Option<String>) -> Result<(), ShellError> {
-        #[cfg(target_os = "macos")]
+        #[cfg(all(target_os = "macos", feature = "platforms"))]
         {
             return self
                 .inner
                 .update_tooltip(tooltip.as_deref())
                 .map_err(|_| ShellError::Unsupported);
+        }
+        #[cfg(all(target_os = "macos", not(feature = "platforms")))]
+        {
+            let _ = tooltip;
+            Err(ShellError::Unsupported)
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -120,8 +148,10 @@ impl TrayHandle {
     }
 }
 
+#[cfg(feature = "tray")]
 pub struct Tray;
 
+#[cfg(feature = "tray")]
 impl Tray {
     pub fn create(
         model: TrayModel,
@@ -159,8 +189,10 @@ impl Tray {
     }
 }
 
+#[cfg(feature = "notification")]
 pub struct Notifications;
 
+#[cfg(feature = "notification")]
 impl Notifications {
     pub fn show(
         notification: Notification,
@@ -193,6 +225,7 @@ impl Notifications {
     }
 }
 
+#[cfg(feature = "context-menu")]
 pub fn popup_context_menu(
     _menu: MenuModel,
     _anchor: MenuAnchor,
@@ -203,6 +236,7 @@ pub fn popup_context_menu(
     Err(ShellError::Unsupported)
 }
 
+#[cfg(feature = "app-menu")]
 pub fn set_app_menu(
     menu: MenuBarModel,
     on_command: impl Fn(CommandId) + 'static,
@@ -233,6 +267,7 @@ pub fn set_app_menu(
     }
 }
 
+#[cfg(feature = "app-menu")]
 pub fn clear_app_menu() -> Result<(), ShellError> {
     set_app_menu(MenuBarModel::new(Vec::new()), |_| {})
 }

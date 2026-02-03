@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 makepad-widgets = { git = "https://github.com/Project-Robius-China/makepad", branch = "makepad_component_used_makepad_version" }
-makepad-shell = { path = "../../crates/shell" }
+makepad-shell = { path = "../../crates/shell", default-features = false, features = ["notification", "platforms"] }
 
 [package.metadata.packager]
 product_name = "Makepad Shell Notification"

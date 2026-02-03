@@ -5,7 +5,20 @@ version     = { workspace = true }
 edition     = { workspace = true }
 
 [features]
-default = ["platforms"]
+default = []
+
+# Shared primitives
+command = []
+shortcut = []
+
+# Core capability groups
+menu-model = ["command", "shortcut"]
+app-menu = ["menu-model"]
+context-menu = ["menu-model"]
+tray = ["command", "shortcut"]
+notification = ["command"]
+
+# Platform backends (macOS implemented)
 platforms = ["dep:makepad-shell-platforms"]
 
 [dependencies]

@@ -2,9 +2,10 @@ use std::sync::Mutex;
 
 use makepad_widgets::*;
 use makepad_widgets::makepad_platform::CxOsOp;
+use makepad_widgets::makepad_platform::thread::SignalToUI;
 use makepad_shell::{
-    CommandId, CommandItem, Key, MenuItem, MenuItemRole, MenuModel, Modifiers, Shortcut, Tray,
-    TrayHandle, TrayIcon, TrayModel,
+    CommandId, Key, Modifiers, Shortcut, Tray, TrayCommandItem, TrayHandle, TrayIcon,
+    TrayMenuItem, TrayMenuItemRole, TrayMenuModel, TrayModel,
 };
 
 const CMD_TOGGLE_GRID: u64 = 1;
@@ -62,6 +63,8 @@ pub struct App {
     tray: Option<TrayHandle>,
     #[rust]
     close_to_tray: bool,
+    #[rust]
+    tray_signal: SignalToUI,
 }
 
 impl LiveRegister for App {
@@ -81,15 +84,17 @@ impl App {
             let icon = tray_icon(self.show_grid);
             let menu = build_tray_menu(self.show_grid, self.close_to_tray);
             let model = TrayModel::new(icon, menu).with_tooltip("Makepad Shell Tray");
+            let signal = self.tray_signal.clone();
 
             let result = Tray::create(
                 model,
-                |cmd| {
+                move |cmd| {
                     log!("tray menu invoked: {}", cmd.as_u64());
                     eprintln!("tray menu invoked: {}", cmd.as_u64());
                     if let Ok(mut slot) = TRAY_COMMAND.lock() {
                         *slot = Some(cmd);
                     }
+                    signal.set();
                 },
                 || {
                     log!("tray activate");
@@ -184,8 +189,9 @@ impl AppMain for App {
     }
 }
 
-fn build_tray_menu(show_grid: bool, close_to_tray: bool) -> MenuModel {
-    let mut toggle_grid = CommandItem::new(CommandId::new(CMD_TOGGLE_GRID).unwrap(), "Show Grid");
+fn build_tray_menu(show_grid: bool, close_to_tray: bool) -> TrayMenuModel {
+    let mut toggle_grid =
+        TrayCommandItem::new(CommandId::new(CMD_TOGGLE_GRID).unwrap(), "Show Grid");
     toggle_grid.checked = show_grid;
     toggle_grid.shortcut = Some(Shortcut {
         mods: Modifiers {
@@ -195,16 +201,19 @@ fn build_tray_menu(show_grid: bool, close_to_tray: bool) -> MenuModel {
         key: Key::Char('g'),
     });
 
-    let mut close_to_tray_item =
-        CommandItem::new(CommandId::new(CMD_CLOSE_TO_TRAY).unwrap(), "Close to Tray");
+    let mut close_to_tray_item = TrayCommandItem::new(
+        CommandId::new(CMD_CLOSE_TO_TRAY).unwrap(),
+        "Close to Tray",
+    );
     close_to_tray_item.checked = close_to_tray;
 
-    MenuModel::new(vec![
-        MenuItem::Command(toggle_grid),
-        MenuItem::Command(close_to_tray_item),
-        MenuItem::Separator,
-        MenuItem::Command(
-            CommandItem::new(CommandId::new(CMD_QUIT).unwrap(), "Quit").with_role(MenuItemRole::Quit),
+    TrayMenuModel::new(vec![
+        TrayMenuItem::Command(toggle_grid),
+        TrayMenuItem::Command(close_to_tray_item),
+        TrayMenuItem::Separator,
+        TrayMenuItem::Command(
+            TrayCommandItem::new(CommandId::new(CMD_QUIT).unwrap(), "Quit")
+                .with_role(TrayMenuItemRole::Quit),
         ),
     ])
 }

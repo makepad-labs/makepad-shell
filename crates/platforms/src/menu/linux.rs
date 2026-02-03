@@ -1,6 +1,7 @@
 #![cfg(target_os = "linux")]
 
-use makepad_shell_core::menu::{CommandId, MenuBarModel};
+use makepad_shell_core::command::CommandId;
+use makepad_shell_core::menu::MenuBarModel;
 
 #[derive(Debug)]
 pub enum LinuxMenuError {

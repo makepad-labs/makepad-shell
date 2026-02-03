@@ -3,27 +3,23 @@
 use core::ffi::c_void;
 use std::cell::RefCell;
 
-use makepad_shell_core::menu::CommandId;
-use makepad_shell_core::tray::{TrayIcon, TrayModel};
+use makepad_shell_core::command::CommandId;
+use makepad_shell_core::shortcut::{Key, Shortcut};
+use makepad_shell_core::tray::{
+    TrayCommandItem, TrayIcon, TrayMenuItem, TrayMenuItemRole, TrayMenuModel, TrayModel,
+};
 use objc2::ffi::NSInteger;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Bool, NSObject, Sel};
 use objc2::{class, define_class, msg_send, sel, DefinedClass, MainThreadMarker, MainThreadOnly};
 
-use crate::menu::macos::{build_ns_menu_with_target, tag_to_command_id, try_update_ns_menu, MacMenuError};
 
 #[derive(Debug)]
 pub enum MacTrayError {
     Unsupported,
     BadIcon,
+    BadCommandId,
     NotOnMainThread,
-    Menu(MacMenuError),
-}
-
-impl From<MacMenuError> for MacTrayError {
-    fn from(err: MacMenuError) -> Self {
-        MacTrayError::Menu(err)
-    }
 }
 
 thread_local! {
@@ -34,11 +30,11 @@ pub struct MacTrayHandle {
     status_item: *mut AnyObject,
     _target: Retained<TrayTarget>,
     _menu: *mut AnyObject,
-    model: makepad_shell_core::menu::MenuModel,
+    model: TrayMenuModel,
 }
 
 impl MacTrayHandle {
-    pub fn update_menu(&mut self, menu: &makepad_shell_core::menu::MenuModel) -> Result<(), MacTrayError> {
+    pub fn update_menu(&mut self, menu: &TrayMenuModel) -> Result<(), MacTrayError> {
         let target_ptr = Retained::as_ptr(&self._target) as *mut AnyObject;
         if let Ok(true) = try_update_ns_menu(self._menu, &self.model, menu, target_ptr) {
             self.model = menu.clone();
@@ -148,6 +144,10 @@ const NS_RIGHT_MOUSE_DOWN_MASK: u64 = 1 << 3;
 const NS_RIGHT_MOUSE_DOWN: NSInteger = 3;
 const NS_RIGHT_MOUSE_UP: NSInteger = 4;
 const NS_RIGHT_MOUSE_DRAGGED: NSInteger = 7;
+const MOD_SHIFT: u64 = 1 << 17;
+const MOD_CONTROL: u64 = 1 << 18;
+const MOD_OPTION: u64 = 1 << 19;
+const MOD_COMMAND: u64 = 1 << 20;
 
 fn main_thread_marker() -> MainThreadMarker {
     MainThreadMarker::new().unwrap_or_else(|| unsafe { MainThreadMarker::new_unchecked() })
@@ -167,6 +167,334 @@ fn install_app_delegate(mtm: MainThreadMarker) {
             *slot.borrow_mut() = Some(delegate);
         }
     });
+}
+
+fn build_ns_menu_with_target(
+    items: &[TrayMenuItem],
+    target: *mut AnyObject,
+) -> Result<*mut AnyObject, MacTrayError> {
+    let ctx = TrayMenuBuildContext { target };
+    build_ns_menu_items(items, &ctx)
+}
+
+fn try_update_ns_menu(
+    menu: *mut AnyObject,
+    old: &TrayMenuModel,
+    new: &TrayMenuModel,
+    target: *mut AnyObject,
+) -> Result<bool, MacTrayError> {
+    if !menu_items_shape_eq(&old.items, &new.items) {
+        return Ok(false);
+    }
+    let ctx = TrayMenuBuildContext { target };
+    update_menu_items(menu, &old.items, &new.items, &ctx)?;
+    Ok(true)
+}
+
+struct TrayMenuBuildContext {
+    target: *mut AnyObject,
+}
+
+impl TrayMenuBuildContext {
+    fn action(&self, role: Option<TrayMenuItemRole>) -> Option<Sel> {
+        if let Some(role) = role {
+            role_selector(role)
+        } else {
+            Some(sel!(menuItemInvoked:))
+        }
+    }
+}
+
+fn build_ns_menu_items(
+    items: &[TrayMenuItem],
+    ctx: &TrayMenuBuildContext,
+) -> Result<*mut AnyObject, MacTrayError> {
+    unsafe {
+        let menu: *mut AnyObject = msg_send![class!(NSMenu), alloc];
+        let title = nsstring("");
+        let menu: *mut AnyObject = msg_send![menu, initWithTitle: title];
+        let _: () = msg_send![menu, setAutoenablesItems: false];
+
+        for item in items {
+            if let Some(mi) = build_ns_menu_item(item, ctx)? {
+                let _: () = msg_send![menu, addItem: mi];
+            }
+        }
+
+        Ok(menu)
+    }
+}
+
+fn build_ns_menu_item(
+    item: &TrayMenuItem,
+    ctx: &TrayMenuBuildContext,
+) -> Result<Option<*mut AnyObject>, MacTrayError> {
+    unsafe {
+        match item {
+            TrayMenuItem::Separator => {
+                let sep: *mut AnyObject = msg_send![class!(NSMenuItem), separatorItem];
+                Ok(Some(sep))
+            }
+            TrayMenuItem::Command(cmd) => {
+                let title = nsstring(&cmd.label);
+                let action = ctx.action(cmd.role);
+                let mut key_equiv = nsstring("");
+                let mut key_mods: Option<u64> = None;
+                if let Some(shortcut) = cmd.shortcut {
+                    if let Some((equiv, mods)) = shortcut_to_key_equivalent(shortcut) {
+                        key_equiv = nsstring(&equiv);
+                        key_mods = Some(mods);
+                    }
+                } else if let Some(role) = cmd.role {
+                    let (equiv, mods) = role_key_equivalent_with_mods(role);
+                    if !equiv.is_empty() {
+                        key_equiv = nsstring(equiv);
+                        key_mods = Some(mods);
+                    }
+                }
+                let mi = new_menu_item(title, action, key_equiv);
+
+                if !ctx.target.is_null() {
+                    let _: () = msg_send![mi, setTarget: ctx.target];
+                }
+                if let Some(mods) = key_mods {
+                    let _: () = msg_send![mi, setKeyEquivalentModifierMask: mods];
+                }
+
+                if cmd.role == Some(TrayMenuItemRole::Services) {
+                    let services_menu = build_services_menu()?;
+                    let _: () = msg_send![mi, setSubmenu: services_menu];
+                }
+
+                let _: () = msg_send![mi, setEnabled: cmd.enabled];
+
+                let state: NSInteger = if cmd.checked { 1 } else { 0 };
+                let _: () = msg_send![mi, setState: state];
+
+                let tag = command_id_to_tag(cmd.id)?;
+                let _: () = msg_send![mi, setTag: tag];
+
+                Ok(Some(mi))
+            }
+            TrayMenuItem::Submenu(sub) => {
+                let title = nsstring(&sub.label);
+                let root = new_menu_item(title, None, nsstring(""));
+                let submenu = build_ns_menu_items(&sub.items, ctx)?;
+                let _: () = msg_send![root, setSubmenu: submenu];
+                Ok(Some(root))
+            }
+        }
+    }
+}
+
+fn update_menu_items(
+    menu: *mut AnyObject,
+    old_items: &[TrayMenuItem],
+    new_items: &[TrayMenuItem],
+    ctx: &TrayMenuBuildContext,
+) -> Result<(), MacTrayError> {
+    unsafe {
+        for (index, (old_item, new_item)) in old_items.iter().zip(new_items.iter()).enumerate() {
+            let item: *mut AnyObject = msg_send![menu, itemAtIndex: index as NSInteger];
+            if item.is_null() {
+                return Ok(());
+            }
+            match (old_item, new_item) {
+                (TrayMenuItem::Separator, TrayMenuItem::Separator) => {}
+                (TrayMenuItem::Command(old_cmd), TrayMenuItem::Command(new_cmd)) => {
+                    update_command_item(item, old_cmd, new_cmd, ctx)?;
+                }
+                (TrayMenuItem::Submenu(old_sub), TrayMenuItem::Submenu(new_sub)) => {
+                    if old_sub.label != new_sub.label {
+                        let title = nsstring(&new_sub.label);
+                        let _: () = msg_send![item, setTitle: title];
+                    }
+                    let submenu: *mut AnyObject = msg_send![item, submenu];
+                    if !submenu.is_null() {
+                        update_menu_items(submenu, &old_sub.items, &new_sub.items, ctx)?;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+fn update_command_item(
+    item: *mut AnyObject,
+    old_cmd: &TrayCommandItem,
+    new_cmd: &TrayCommandItem,
+    ctx: &TrayMenuBuildContext,
+) -> Result<(), MacTrayError> {
+    unsafe {
+        let _: () = msg_send![item, setAction: ctx.action(new_cmd.role)];
+        if !ctx.target.is_null() {
+            let _: () = msg_send![item, setTarget: ctx.target];
+        } else {
+            let _: () = msg_send![item, setTarget: std::ptr::null::<AnyObject>()];
+        }
+
+        let mut key_equiv = nsstring("");
+        let mut key_mods: Option<u64> = None;
+        if let Some(shortcut) = new_cmd.shortcut {
+            if let Some((equiv, mods)) = shortcut_to_key_equivalent(shortcut) {
+                key_equiv = nsstring(&equiv);
+                key_mods = Some(mods);
+            }
+        } else if let Some(role) = new_cmd.role {
+            let (equiv, mods) = role_key_equivalent_with_mods(role);
+            if !equiv.is_empty() {
+                key_equiv = nsstring(equiv);
+                key_mods = Some(mods);
+            }
+        }
+        let _: () = msg_send![item, setKeyEquivalent: key_equiv];
+        let _: () = msg_send![item, setKeyEquivalentModifierMask: key_mods.unwrap_or(0)];
+
+        if old_cmd.label != new_cmd.label {
+            let title = nsstring(&new_cmd.label);
+            let _: () = msg_send![item, setTitle: title];
+        }
+        if old_cmd.enabled != new_cmd.enabled {
+            let _: () = msg_send![item, setEnabled: new_cmd.enabled];
+        }
+        if old_cmd.checked != new_cmd.checked {
+            let state: NSInteger = if new_cmd.checked { 1 } else { 0 };
+            let _: () = msg_send![item, setState: state];
+        }
+        if old_cmd.id != new_cmd.id {
+            let tag = command_id_to_tag(new_cmd.id)?;
+            let _: () = msg_send![item, setTag: tag];
+        }
+
+        if new_cmd.role == Some(TrayMenuItemRole::Services) {
+            let _ = build_services_menu();
+        }
+    }
+    Ok(())
+}
+
+fn menu_items_shape_eq(old_items: &[TrayMenuItem], new_items: &[TrayMenuItem]) -> bool {
+    if old_items.len() != new_items.len() {
+        return false;
+    }
+    for (old_item, new_item) in old_items.iter().zip(new_items.iter()) {
+        if !menu_item_shape_eq(old_item, new_item) {
+            return false;
+        }
+    }
+    true
+}
+
+fn menu_item_shape_eq(old_item: &TrayMenuItem, new_item: &TrayMenuItem) -> bool {
+    match (old_item, new_item) {
+        (TrayMenuItem::Separator, TrayMenuItem::Separator) => true,
+        (TrayMenuItem::Command(old_cmd), TrayMenuItem::Command(new_cmd)) => old_cmd.role == new_cmd.role,
+        (TrayMenuItem::Submenu(old_sub), TrayMenuItem::Submenu(new_sub)) => {
+            menu_items_shape_eq(&old_sub.items, &new_sub.items)
+        }
+        _ => false,
+    }
+}
+
+fn command_id_to_tag(id: CommandId) -> Result<NSInteger, MacTrayError> {
+    let id_u64 = id.as_u64();
+    if id_u64 > (isize::MAX as u64) {
+        return Err(MacTrayError::BadCommandId);
+    }
+    Ok(id_u64 as NSInteger)
+}
+
+fn tag_to_command_id(tag: NSInteger) -> Option<CommandId> {
+    if tag <= 0 {
+        return None;
+    }
+    CommandId::new(tag as u64)
+}
+
+fn build_services_menu() -> Result<*mut AnyObject, MacTrayError> {
+    unsafe {
+        let menu: *mut AnyObject = msg_send![class!(NSMenu), alloc];
+        let menu: *mut AnyObject = msg_send![menu, initWithTitle: nsstring("Services")];
+        let _: () = msg_send![menu, setAutoenablesItems: false];
+        let ns_app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let _: () = msg_send![ns_app, setServicesMenu: menu];
+        Ok(menu)
+    }
+}
+
+fn role_selector(role: TrayMenuItemRole) -> Option<Sel> {
+    match role {
+        TrayMenuItemRole::About => Some(sel!(orderFrontStandardAboutPanel:)),
+        TrayMenuItemRole::Preferences => Some(sel!(showPreferences:)),
+        TrayMenuItemRole::Services => None,
+        TrayMenuItemRole::Hide => Some(sel!(hide:)),
+        TrayMenuItemRole::HideOthers => Some(sel!(hideOtherApplications:)),
+        TrayMenuItemRole::ShowAll => Some(sel!(unhideAllApplications:)),
+        TrayMenuItemRole::Quit => Some(sel!(terminate:)),
+        TrayMenuItemRole::Minimize => Some(sel!(performMiniaturize:)),
+        TrayMenuItemRole::Zoom => Some(sel!(performZoom:)),
+        TrayMenuItemRole::BringAllToFront => Some(sel!(arrangeInFront:)),
+    }
+}
+
+fn role_key_equivalent_with_mods(role: TrayMenuItemRole) -> (&'static str, u64) {
+    match role {
+        TrayMenuItemRole::About => ("", 0),
+        TrayMenuItemRole::Preferences => (",", MOD_COMMAND),
+        TrayMenuItemRole::Services => ("", 0),
+        TrayMenuItemRole::Hide => ("h", MOD_COMMAND),
+        TrayMenuItemRole::HideOthers => ("h", MOD_COMMAND | MOD_OPTION),
+        TrayMenuItemRole::ShowAll => ("", 0),
+        TrayMenuItemRole::Quit => ("q", MOD_COMMAND),
+        TrayMenuItemRole::Minimize => ("m", MOD_COMMAND),
+        TrayMenuItemRole::Zoom => ("", 0),
+        TrayMenuItemRole::BringAllToFront => ("", 0),
+    }
+}
+
+fn new_menu_item(title: *mut AnyObject, action: Option<Sel>, key_equiv: *mut AnyObject) -> *mut AnyObject {
+    unsafe {
+        let item: *mut AnyObject = msg_send![class!(NSMenuItem), alloc];
+        let item: *mut AnyObject =
+            msg_send![item, initWithTitle: title, action: action, keyEquivalent: key_equiv];
+        item
+    }
+}
+
+fn shortcut_to_key_equivalent(shortcut: Shortcut) -> Option<(String, u64)> {
+    let key = match shortcut.key {
+        Key::Char(c) => {
+            let ch = if c.is_ascii() { c.to_ascii_lowercase() } else { c };
+            ch.to_string()
+        }
+        Key::Enter => "\r".to_string(),
+        Key::Escape => "\u{1b}".to_string(),
+        Key::F(n) => {
+            if (1..=12).contains(&n) {
+                let code = 0xF704u32 + (n as u32 - 1);
+                char::from_u32(code)?.to_string()
+            } else {
+                return None;
+            }
+        }
+    };
+
+    let mut mods = 0u64;
+    if shortcut.mods.shift {
+        mods |= MOD_SHIFT;
+    }
+    if shortcut.mods.ctrl {
+        mods |= MOD_CONTROL;
+    }
+    if shortcut.mods.alt {
+        mods |= MOD_OPTION;
+    }
+    if shortcut.mods.meta {
+        mods |= MOD_COMMAND;
+    }
+    Some((key, mods))
 }
 
 fn build_ns_image(icon: &TrayIcon) -> Result<*mut AnyObject, MacTrayError> {

@@ -3,7 +3,9 @@
 use core::ffi::c_void;
 use std::cell::RefCell;
 
+use makepad_shell_core::command::CommandId;
 use makepad_shell_core::menu::*;
+use makepad_shell_core::shortcut::{Key, Shortcut};
 use objc2::encode::{Encode, Encoding, RefEncode};
 use objc2::ffi::NSInteger;
 use objc2::rc::Retained;

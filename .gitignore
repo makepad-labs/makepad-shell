@@ -1,6 +1,7 @@
 # Build artifacts
 /target
-dist
+!/examples/makepad_notification/dist
+/examples/makepad_notification/dist/resources
 
 # macOS
 .DS_Store

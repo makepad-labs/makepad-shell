@@ -104,6 +104,7 @@ pub fn build_ns_menu_from_model(menu: &MenuModel) -> Result<*mut AnyObject, MacM
     build_ns_menu_items(&menu.items, &ctx)
 }
 
+#[allow(dead_code)]
 pub(crate) fn build_ns_menu_with_target(
     items: &[MenuItem],
     target: *mut AnyObject,
@@ -114,6 +115,7 @@ pub(crate) fn build_ns_menu_with_target(
     build_ns_menu_items(items, &ctx)
 }
 
+#[allow(dead_code)]
 pub(crate) fn try_update_ns_menu(
     menu: *mut AnyObject,
     old: &MenuModel,

@@ -23,7 +23,7 @@ System shell UI primitives for Makepad, providing native menus, tray/status item
 2. Clone the repo:
 
 ```bash
-git clone https://github.com/Project-Robius-China/makepad-shell.git
+git clone https://github.com/makepad-labs/makepad-shell.git
 cd makepad-shell
 ```
 
@@ -53,7 +53,7 @@ Git dependency:
 
 ```toml
 [dependencies]
-makepad-shell = { git = "https://github.com/Project-Robius-China/makepad-shell.git", branch = "main" }
+makepad-shell = { git = "https://github.com/makepad-labs/makepad-shell", branch = "main" }
 ```
 
 **Configuration**
@@ -71,21 +71,21 @@ makepad-shell = { git = "https://github.com/Project-Robius-China/makepad-shell.g
 
 ```toml
 [dependencies]
-makepad-shell = { git = "https://github.com/Project-Robius-China/makepad-shell.git", default-features = false, features = ["tray", "platforms"] }
+makepad-shell = { git = "https://github.com/makepad-labs/makepad-shell.git", default-features = false, features = ["tray", "platforms"] }
 ```
 
 App menu only:
 
 ```toml
 [dependencies]
-makepad-shell = { git = "https://github.com/Project-Robius-China/makepad-shell.git", default-features = false, features = ["app-menu", "platforms"] }
+makepad-shell = { git = "https://github.com/makepad-labs/makepad-shell.git", default-features = false, features = ["app-menu", "platforms"] }
 ```
 
 Context menu only:
 
 ```toml
 [dependencies]
-makepad-shell = { git = "https://github.com/Project-Robius-China/makepad-shell.git", default-features = false, features = ["context-menu", "platforms"] }
+makepad-shell = { git = "https://github.com/makepad-labs/makepad-shell.git", default-features = false, features = ["context-menu", "platforms"] }
 ```
 
 Menu models only (no platform backends):

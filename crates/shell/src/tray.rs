@@ -6,6 +6,8 @@ use crate::ShellError;
 pub struct TrayHandle {
     #[cfg(all(target_os = "macos", feature = "platforms"))]
     inner: makepad_shell_platforms::tray::macos::MacTrayHandle,
+    #[cfg(all(target_os = "windows", feature = "platforms"))]
+    inner: makepad_shell_platforms::tray::windows::WindowsTrayHandle,
 }
 
 impl TrayHandle {
@@ -17,12 +19,24 @@ impl TrayHandle {
                 .update_menu(&menu)
                 .map_err(|_| ShellError::Unsupported);
         }
+        #[cfg(all(target_os = "windows", feature = "platforms"))]
+        {
+            return self
+                .inner
+                .update_menu(&menu)
+                .map_err(|_| ShellError::Unsupported);
+        }
         #[cfg(all(target_os = "macos", not(feature = "platforms")))]
         {
             let _ = menu;
             Err(ShellError::Unsupported)
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(all(target_os = "windows", not(feature = "platforms")))]
+        {
+            let _ = menu;
+            Err(ShellError::Unsupported)
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
             let _ = menu;
             Err(ShellError::Unsupported)
@@ -37,12 +51,24 @@ impl TrayHandle {
                 .update_icon(&icon)
                 .map_err(|_| ShellError::Unsupported);
         }
+        #[cfg(all(target_os = "windows", feature = "platforms"))]
+        {
+            return self
+                .inner
+                .update_icon(&icon)
+                .map_err(|_| ShellError::Unsupported);
+        }
         #[cfg(all(target_os = "macos", not(feature = "platforms")))]
         {
             let _ = icon;
             Err(ShellError::Unsupported)
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(all(target_os = "windows", not(feature = "platforms")))]
+        {
+            let _ = icon;
+            Err(ShellError::Unsupported)
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
             let _ = icon;
             Err(ShellError::Unsupported)
@@ -57,12 +83,24 @@ impl TrayHandle {
                 .update_tooltip(tooltip.as_deref())
                 .map_err(|_| ShellError::Unsupported);
         }
+        #[cfg(all(target_os = "windows", feature = "platforms"))]
+        {
+            return self
+                .inner
+                .update_tooltip(tooltip.as_deref())
+                .map_err(|_| ShellError::Unsupported);
+        }
         #[cfg(all(target_os = "macos", not(feature = "platforms")))]
         {
             let _ = tooltip;
             Err(ShellError::Unsupported)
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(all(target_os = "windows", not(feature = "platforms")))]
+        {
+            let _ = tooltip;
+            Err(ShellError::Unsupported)
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
             let _ = tooltip;
             Err(ShellError::Unsupported)
@@ -98,8 +136,28 @@ impl Tray {
                 return Err(ShellError::Unsupported);
             }
         }
+        #[cfg(target_os = "windows")]
+        {
+            #[cfg(feature = "platforms")]
+            {
+                let inner = makepad_shell_platforms::tray::windows::create_tray_windows(
+                    model,
+                    Box::new(on_command),
+                    Box::new(on_activate),
+                )
+                .map_err(|_| ShellError::Unsupported)?;
+                return Ok(TrayHandle { inner });
+            }
+            #[cfg(not(feature = "platforms"))]
+            {
+                let _ = model;
+                let _ = on_command;
+                let _ = on_activate;
+                return Err(ShellError::Unsupported);
+            }
+        }
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
             let _ = model;
             let _ = on_command;

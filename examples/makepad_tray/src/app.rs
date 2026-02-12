@@ -1,18 +1,21 @@
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::sync::Mutex;
 
-use makepad_widgets::*;
-use makepad_widgets::makepad_platform::CxOsOp;
-use makepad_widgets::makepad_platform::thread::SignalToUI;
 use makepad_shell::{
-    CommandId, Key, Modifiers, Shortcut, Tray, TrayCommandItem, TrayHandle, TrayIcon,
-    TrayMenuItem, TrayMenuItemRole, TrayMenuModel, TrayModel,
+    CommandId, Key, Modifiers, Shortcut, Tray, TrayCommandItem, TrayHandle, TrayIcon, TrayMenuItem,
+    TrayMenuItemRole, TrayMenuModel, TrayModel,
 };
+use makepad_widgets::desktop_button::DesktopButtonWidgetRefExt;
+use makepad_widgets::makepad_platform::thread::SignalToUI;
+use makepad_widgets::makepad_platform::CxOsOp;
+use makepad_widgets::*;
 
 const CMD_TOGGLE_GRID: u64 = 1;
 const CMD_CLOSE_TO_TRAY: u64 = 2;
 const CMD_QUIT: u64 = 3;
+const CMD_TRAY_ACTIVATE: u64 = 10_001;
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 static TRAY_COMMAND: Mutex<Option<CommandId>> = Mutex::new(None);
 
 live_design! {
@@ -65,6 +68,10 @@ pub struct App {
     close_to_tray: bool,
     #[rust]
     tray_signal: SignalToUI,
+    #[rust]
+    tray_poll_timer: Timer,
+    #[rust]
+    main_window_id: Option<WindowId>,
 }
 
 impl LiveRegister for App {
@@ -75,7 +82,7 @@ impl LiveRegister for App {
 
 impl App {
     fn install_tray(&mut self) {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
             if self.tray.is_some() {
                 return;
@@ -85,6 +92,7 @@ impl App {
             let menu = build_tray_menu(self.show_grid, self.close_to_tray);
             let model = TrayModel::new(icon, menu).with_tooltip("Makepad Shell Tray");
             let signal = self.tray_signal.clone();
+            let activate_signal = self.tray_signal.clone();
 
             let result = Tray::create(
                 model,
@@ -96,9 +104,13 @@ impl App {
                     }
                     signal.set();
                 },
-                || {
+                move || {
                     log!("tray activate");
                     eprintln!("tray activate");
+                    if let Ok(mut slot) = TRAY_COMMAND.lock() {
+                        *slot = CommandId::new(CMD_TRAY_ACTIVATE);
+                    }
+                    activate_signal.set();
                 },
             );
 
@@ -113,14 +125,13 @@ impl App {
     }
 
     fn drain_tray_events(&mut self, cx: &mut Cx) {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
             if let Ok(mut slot) = TRAY_COMMAND.lock() {
                 if let Some(cmd) = slot.take() {
                     self.apply_command(cx, cmd);
                 }
             }
-
         }
     }
 
@@ -132,7 +143,11 @@ impl App {
                 if let Some(handle) = self.tray.as_mut() {
                     let _ = handle.update_menu(build_tray_menu(self.show_grid, self.close_to_tray));
                     let _ = handle.update_icon(tray_icon(self.show_grid));
-                    let tip = if self.show_grid { "Grid: ON" } else { "Grid: OFF" };
+                    let tip = if self.show_grid {
+                        "Grid: ON"
+                    } else {
+                        "Grid: OFF"
+                    };
                     let _ = handle.update_tooltip(Some(tip.to_string()));
                 }
             }
@@ -144,6 +159,11 @@ impl App {
             }
             CMD_QUIT => {
                 cx.quit();
+            }
+            CMD_TRAY_ACTIVATE => {
+                if let Some(window_id) = self.main_window_id {
+                    cx.push_unique_platform_op(CxOsOp::RestoreWindow(window_id));
+                }
             }
             _ => {}
         }
@@ -168,8 +188,9 @@ impl App {
 }
 
 impl MatchEvent for App {
-    fn handle_startup(&mut self, _cx: &mut Cx) {
+    fn handle_startup(&mut self, cx: &mut Cx) {
         self.close_to_tray = true;
+        self.tray_poll_timer = cx.start_interval(0.2);
         self.install_tray();
     }
 }
@@ -177,14 +198,45 @@ impl MatchEvent for App {
 impl AppMain for App {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
         self.match_event(cx, event);
-        if let Event::WindowCloseRequested(ev) = event {
-            if self.close_to_tray {
-                ev.accept_close.set(false);
-                cx.push_unique_platform_op(CxOsOp::HideWindow(ev.window_id));
+        let mut swallow_close_action = false;
+        #[cfg(target_os = "windows")]
+        if let Event::Actions(actions) = event {
+            if self.close_to_tray
+                && self
+                    .ui
+                    .desktop_button(ids!(main_window.windows_buttons.close))
+                    .clicked(actions)
+            {
+                if let Some(window_id) = self.main_window_id {
+                    cx.push_unique_platform_op(CxOsOp::MinimizeWindow(window_id));
+                }
+                swallow_close_action = true;
             }
         }
+        if let Event::WindowGeomChange(ev) = event {
+            self.main_window_id = Some(ev.window_id);
+        }
+        if let Event::WindowCloseRequested(ev) = event {
+            self.main_window_id = Some(ev.window_id);
+            if self.close_to_tray {
+                ev.accept_close.set(false);
+                #[cfg(target_os = "windows")]
+                {
+                    // makepad windows backend currently has HideWindow as todo!()
+                    cx.push_unique_platform_op(CxOsOp::MinimizeWindow(ev.window_id));
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    cx.push_unique_platform_op(CxOsOp::HideWindow(ev.window_id));
+                }
+            }
+        }
+        let _ = self.tray_poll_timer.is_event(event);
         self.install_tray();
         self.drain_tray_events(cx);
+        if swallow_close_action {
+            return;
+        }
         self.ui.handle_event(cx, event, &mut Scope::empty());
     }
 }
@@ -192,19 +244,25 @@ impl AppMain for App {
 fn build_tray_menu(show_grid: bool, close_to_tray: bool) -> TrayMenuModel {
     let mut toggle_grid =
         TrayCommandItem::new(CommandId::new(CMD_TOGGLE_GRID).unwrap(), "Show Grid");
-    toggle_grid.checked = show_grid;
-    toggle_grid.shortcut = Some(Shortcut {
-        mods: Modifiers {
+    let shortcut_mods = if cfg!(target_os = "windows") {
+        Modifiers {
+            ctrl: true,
+            ..Modifiers::default()
+        }
+    } else {
+        Modifiers {
             meta: true,
             ..Modifiers::default()
-        },
+        }
+    };
+    toggle_grid.checked = show_grid;
+    toggle_grid.shortcut = Some(Shortcut {
+        mods: shortcut_mods,
         key: Key::Char('g'),
     });
 
-    let mut close_to_tray_item = TrayCommandItem::new(
-        CommandId::new(CMD_CLOSE_TO_TRAY).unwrap(),
-        "Close to Tray",
-    );
+    let mut close_to_tray_item =
+        TrayCommandItem::new(CommandId::new(CMD_CLOSE_TO_TRAY).unwrap(), "Close to Tray");
     close_to_tray_item.checked = close_to_tray;
 
     TrayMenuModel::new(vec![
